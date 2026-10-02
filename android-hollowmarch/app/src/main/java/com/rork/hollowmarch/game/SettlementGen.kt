@@ -124,7 +124,11 @@ object SettlementGen {
         force: Boolean = false
     ) {
         if ((!force && site.population <= 0) || map.buildings.isEmpty()) return
-        val cultureId = SiteGen.cultureId(world, site)
+        // The diggings keep no folk of their own: a mine's or quarry's hands are
+        // the nearest living settlement's own, sent out to the works.
+        val worksite = site.kind == SiteKind.MINE || site.kind == SiteKind.QUARRY
+        val host = if (worksite) SiteGen.worksHost(world, site) else site
+        val cultureId = SiteGen.cultureId(world, host)
         val pool = world.figures
             .filter { it.cultureId == cultureId }
             .map { it.name }
@@ -190,19 +194,25 @@ object SettlementGen {
             val by = cy + 0.5f + sin(ang) * r
             if (!map.isWall(bx, by)) {
                 val hIndex = homeless++
-                val hRole = if (site.kind == SiteKind.MINE || site.kind == SiteKind.QUARRY) {
+                val hRole = if (worksite) {
                     RoleBook.worksiteWorkerRole(world.seed, site, hIndex)
                 } else {
                     RoleBook.homelessRole(world.seed, site, hIndex)
+                }
+                // a worksite's hands carry the host settlement's heart: the key
+                // is dealt from the settlement's book, so the town's own souls
+                // walk the works
+                val hKey = if (worksite) {
+                    PersonalityBook.key(world.seed, "${host.id}:u$hIndex")
+                } else {
+                    PersonalityBook.key(world.seed, "${site.id}:h$hIndex")
                 }
                 map.entities += Entity(
                     x = bx, y = by, spriteId = Sprites.PILGRIM,
                     kind = EntityKind.ENEMY, height = 0.95f,
                     name = name(), resident = true, homeBuilding = -1,
                     role = hRole, workBuilding = -1,
-                    personality = PersonalityBook.deal(
-                        PersonalityBook.key(world.seed, "${site.id}:h$hIndex"), hRole
-                    )
+                    personality = PersonalityBook.deal(hKey, hRole)
                 )
             }
         }

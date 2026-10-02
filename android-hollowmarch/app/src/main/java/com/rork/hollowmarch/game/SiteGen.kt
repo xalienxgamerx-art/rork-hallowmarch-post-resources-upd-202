@@ -1,8 +1,10 @@
 package com.rork.hollowmarch.game
 
+import com.rork.hollowmarch.world.Biome
 import com.rork.hollowmarch.world.Site
 import com.rork.hollowmarch.world.SiteKind
 import com.rork.hollowmarch.world.World
+import com.rork.hollowmarch.world.isSettlement
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -244,6 +246,7 @@ object SiteGen {
             )
         )
         repeat(2 + rng.nextInt(2)) { looseEnemy(map, rng, doors, 1 + day / 25, roster, cultureId(world, site), geography) }
+        buildGround(world, site, map, seed)
         return map
     }
 
@@ -272,6 +275,7 @@ object SiteGen {
             )
         )
         repeat(1 + rng.nextInt(2)) { looseEnemy(map, rng, doors, 1 + day / 25, roster, cultureId(world, site), geography) }
+        buildGround(world, site, map, seed)
         return map
     }
 
@@ -316,6 +320,7 @@ object SiteGen {
             )
         )
         repeat(2 + rng.nextInt(2)) { looseEnemy(map, rng, doors, 1 + day / 25, roster, cultureId(world, site), geography) }
+        buildGround(world, site, map, seed)
         return map
     }
 
@@ -399,6 +404,7 @@ object SiteGen {
                     e.y.toInt() > b.y && e.y.toInt() < b.y + b.h - 1
             }
         }
+        buildGround(world, site, map, seed)
         map.entities.removeAll { map.isWall(it.x, it.y) }
         return map
     }
@@ -456,6 +462,7 @@ object SiteGen {
             Sprites.GRAVE, 0.6f
         )
         repeat(1 + rng.nextInt(2)) { looseEnemy(map, rng, emptyList(), 1 + day / 25, roster, cultureId, geography) }
+        buildGround(world, site, map, seed)
         map.spawnX = cx + 0.5f
         map.spawnY = cy + 9.5f
         map.spawnAngle = -1.5708f
@@ -589,6 +596,7 @@ object SiteGen {
         worker(cx + 3.4f, 15.6f)
         worker(cx + 0.8f, 19.5f)
 
+        buildGround(world, site, map, seed)
         map.spawnX = cx + 0.5f
         map.spawnY = (size - 8).toFloat()
         map.spawnAngle = -1.5708f
@@ -724,6 +732,7 @@ object SiteGen {
         worker(cx - 2.0f, cy + 12.0f)
         worker(cx + 7.5f, cy + 12.5f)
 
+        buildGround(world, site, map, seed)
         map.spawnX = cx + 0.5f
         map.spawnY = (size - 8).toFloat()
         map.spawnAngle = -1.5708f
@@ -731,13 +740,18 @@ object SiteGen {
         return map
     }
 
-    /** The works' own hands, named from the province's figures, dealt diggings trades. */
-    private fun workerNames(world: World, site: Site, rng: Random): List<String> =
-        world.figures
-            .filter { it.cultureId == cultureId(world, site) }
+    /**
+     * The works' own hands, named from the host settlement's folk: the diggings
+     * keep no folk of their own — the nearest living settlement sends them.
+     */
+    private fun workerNames(world: World, site: Site, rng: Random): List<String> {
+        val host = worksHost(world, site)
+        return world.figures
+            .filter { it.cultureId == cultureId(world, host) }
             .map { it.name }
             .ifEmpty { world.figures.map { it.name } }
             .shuffled(rng)
+    }
 
     /** One hand of the works: a resident worker, harmless, dealt its trade from the site. */
     private fun workHand(
@@ -750,15 +764,121 @@ object SiteGen {
         name: String
     ) {
         val role = RoleBook.worksiteWorkerRole(world.seed, site, index)
+        // the hands are the host settlement's own folk: their hearts are dealt
+        // from the settlement's book, their trades from the pit
+        val host = worksHost(world, site)
         map.entities += Entity(
             x = x, y = y, spriteId = Sprites.PILGRIM,
             kind = EntityKind.ENEMY, height = 0.98f,
             name = name, resident = true, homeBuilding = -1,
             role = role, workBuilding = -1,
             personality = PersonalityBook.deal(
-                PersonalityBook.key(world.seed, "${site.id}:w$index"), role
+                PersonalityBook.key(world.seed, "${host.id}:w$index"), role
             )
         )
+    }
+
+    /**
+     * The living place whose folk work this ground: the nearest settlement still
+     * breathing, preferring the works' own sovereign and culture. A site with no
+     * settlement left in the province works its own ground.
+     */
+    internal fun worksHost(world: World, site: Site): Site {
+        if (site.isSettlement) return site
+        val living = world.sites.filter { it.isSettlement && !it.ruined && it.population > 0 }
+        if (living.isEmpty()) return site
+        val culture = cultureId(world, site)
+        return living.minWithOrNull(
+            compareBy(
+                { if (it.sovereignRealmId != null && it.sovereignRealmId == site.sovereignRealmId) 0 else 1 },
+                { if (cultureId(world, it) == culture) 0 else 1 },
+                { (it.x - site.x) * (it.x - site.x) + (it.y - site.y) * (it.y - site.y) },
+                { it.id }
+            )
+        ) ?: site
+    }
+
+    /**
+     * The land itself under a site's open ground: rolling hills from the world's
+     * own seed, with level pads kept under every road, built wall and door — the
+     * same ground the living places and the open province stand on. The works
+     * carve further: a quarry's pit steps down into the earth, a mine's rock
+     * stands up over its yard.
+     */
+    private fun buildGround(world: World, site: Site, map: GameMap, seed: Long) {
+        val amp = when (world.terrain.biomeAt(site.x, site.y)) {
+            Biome.HILLS, Biome.PEAK -> 1.6f
+            Biome.FOREST, Biome.MOOR -> 0.9f
+            Biome.DOWNS -> 0.7f
+            Biome.MARSH -> 0.4f
+            Biome.OCEAN -> 0.25f
+        }
+        Landform.buildHeights(
+            map, seed, { _, _ -> amp },
+            padTexes = setOf(
+                Textures.FLOOR_ROAD, Textures.FLOOR_FORD,
+                Textures.FLOOR_MUD, Textures.FLOOR_FLAG
+            )
+        )
+        when (site.kind) {
+            SiteKind.QUARRY -> carveQuarryPit(map)
+            SiteKind.MINE -> carveMineHill(map)
+            else -> {}
+        }
+    }
+
+    /** The cut: the quarry's floor sinks below its rim in benches, the ramp graded. */
+    private fun carveQuarryPit(map: GameMap) {
+        val hts = map.heights ?: return
+        val vw = map.width + 1
+        val cx = map.width / 2
+        val cy = map.height / 2
+        for (vy in cy - 9..cy + 10) {
+            if (vy !in 0..map.height) continue
+            for (vx in cx - 9..cx + 10) {
+                if (vx !in 0..map.width) continue
+                val d = maxOf(abs(vx - cx), abs(vy - cy))
+                val bench = when {
+                    d <= 3 -> 0.95f
+                    d <= 5 -> 0.62f
+                    d <= 7 -> 0.34f
+                    d <= 9 -> 0.12f
+                    else -> 0f
+                }
+                if (bench <= 0f) continue
+                // the ramp: a graded way down from the south rim to the cut floor
+                val ramp = if (vx in cx - 1..cx + 2) {
+                    ((cy + 9 - vy).toFloat() / 6f).coerceIn(0f, 1f)
+                } else 1f
+                hts[vy * vw + vx] -= bench * ramp
+            }
+        }
+    }
+
+    /** The hill: the mine's rock stands over its yard, the adit cut back to grade. */
+    private fun carveMineHill(map: GameMap) {
+        val hts = map.heights ?: return
+        val vw = map.width + 1
+        val cx = map.width / 2
+        for (vy in 0..11) {
+            val fall = when {
+                vy <= 9 -> 1f
+                vy == 10 -> 0.5f
+                else -> 0f
+            }
+            if (fall <= 0f) continue
+            for (vx in 0..map.width) {
+                // the adit's notch keeps the yard's grade, its shoulders eased
+                val corridor = when {
+                    vy >= 8 && vx in cx - 1..cx + 2 -> 0f
+                    vx in cx - 1..cx + 2 -> 0.5f
+                    vx == cx - 2 || vx == cx + 3 -> 0.5f
+                    else -> 1f
+                }
+                if (corridor <= 0f) continue
+                hts[vy * vw + vx] += 0.85f * fall * corridor
+            }
+        }
     }
 
     // ------------------------------------------------------------------ underground
@@ -962,7 +1082,9 @@ object SiteGen {
             val names = workerNames(world, site, rng)
             rooms.take(2).forEachIndexed { i, room ->
                 if (names.isNotEmpty()) {
-                    workHand(map, world, site, room.cx + 0.5f, room.cy + 1.5f, i, names[i % names.size])
+                    // the deep hands keep an identity space of their own, clear
+                    // of the yard's — same works, different floors
+                    workHand(map, world, site, room.cx + 0.5f, room.cy + 1.5f, 10 + i, names[i % names.size])
                 }
             }
         }

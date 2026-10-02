@@ -4,6 +4,8 @@ import com.rork.hollowmarch.world.Biome
 import com.rork.hollowmarch.world.Site
 import com.rork.hollowmarch.world.SiteKind
 import com.rork.hollowmarch.world.WorldGenerator
+import com.rork.hollowmarch.world.isSettlement
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -135,5 +137,93 @@ class MineQuarryTest {
             a.entities.map { Triple(it.x, it.y, it.name) },
             b.entities.map { Triple(it.x, it.y, it.name) }
         )
+    }
+
+    @Test
+    fun theLandRollsUnderTheWorks() {
+        // the quarry's cut: a true pit stepped below its rim, the ramp graded down
+        val surface = SiteGen.map(world, quarry, 0, null, null, 1)
+        assertTrue("the quarry's ground keeps no heights", surface.heights != null)
+        val cx = surface.width / 2
+        val cy = surface.height / 2
+        val floor = (cx - 1..cx + 1).map { surface.heightAt(it + 0.5f, cy + 0.5f) }.average().toFloat()
+        val rim = (cx - 2..cx + 2 step 2).map { surface.heightAt(it + 0.5f, cy - 13.5f) }.average().toFloat()
+        assertTrue("the cut floor stands at its rim's height", floor < rim - 0.3f)
+        val rampTop = surface.heightAt(cx + 0.5f, cy + 8.5f)
+        val rampFoot = surface.heightAt(cx + 0.5f, cy + 4.5f)
+        assertTrue("the ramp climbs the wrong way", rampFoot < rampTop)
+        // the mine's rock stands over its yard, the adit cut back to grade
+        val yard = SiteGen.map(world, mine, 0, null, null, 1)
+        val lattice = yard.heights
+        assertTrue("the mine's ground keeps no heights", lattice != null)
+        val vw = yard.width + 1
+        fun rowMean(row: Int): Float =
+            (0..yard.width).map { vx -> lattice!![row * vw + vx] }.average().toFloat()
+        assertTrue("the rock does not stand over the yard", rowMean(6) > rowMean(18) + 0.3f)
+        val mx = yard.width / 2
+        val mouth = yard.heightAt(mx + 0.5f, 9.5f)
+        val road = yard.heightAt(mx + 0.5f, 11.5f)
+        assertTrue("the adit is not cut to grade", abs(mouth - road) < 0.25f)
+    }
+
+    @Test
+    fun everySiteSurfaceStandsOnRollingLand() {
+        listOf(
+            SiteKind.VAULT, SiteKind.BARROW, SiteKind.RUIN, SiteKind.SHRINE, SiteKind.CAMP
+        ).forEach { kind ->
+            val site = siteOf(kind)
+            val map = SiteGen.map(world, site, 0, null, null, 1)
+            val lattice = map.heights
+            assertTrue("$kind keeps no heights", lattice != null)
+            // the ways through stand level: pads keep every doorway walkable
+            val vw = map.width + 1
+            map.portals.filter { it.targetFloor != OverlandGen.OVERLAND_FLOOR }.forEach { p ->
+                val vx = p.x.toInt()
+                val vy = p.y.toInt()
+                val hts = lattice!!
+                val h00 = hts[vy * vw + vx]
+                val level = maxOf(
+                    abs(hts[vy * vw + vx + 1] - h00),
+                    abs(hts[(vy + 1) * vw + vx] - h00),
+                    abs(hts[(vy + 1) * vw + vx + 1] - h00)
+                )
+                assertTrue(
+                    "$kind's door at (${p.x}, ${p.y}) stands on broken ground",
+                    level < 0.05f
+                )
+            }
+        }
+    }
+
+    @Test
+    fun theWorksAreWorkedByTheSettlementsOwnFolk() {
+        listOf(mine, quarry).forEach { site ->
+            val host = SiteGen.worksHost(world, site)
+            assertTrue(
+                "the works' host is no living settlement",
+                host.isSettlement && !host.ruined && host.population > 0
+            )
+            assertEquals("a settlement works its own ground", host, SiteGen.worksHost(world, host))
+            // deterministic: same province, same host, asked twice over
+            assertEquals(host, SiteGen.worksHost(world, site))
+        }
+        // every hand's heart is dealt from the host settlement's book, not the works'
+        val surface = SiteGen.map(world, mine, 0, null, null, 1)
+        val host = SiteGen.worksHost(world, mine)
+        val keys = (0..4).map { "${host.id}:w$it" } +
+            (0..1).map { "${host.id}:u$it" } +
+            listOf("${mine.id}:k0")
+        surface.entities
+            .filter { it.kind == EntityKind.ENEMY && it.resident }
+            .forEach { hand ->
+                assertTrue(
+                    "'${hand.name}' carries a heart the works coined itself",
+                    keys.any { tag ->
+                        hand.personality == PersonalityBook.deal(
+                            PersonalityBook.key(world.seed, tag), hand.role
+                        )
+                    }
+                )
+            }
     }
 }
