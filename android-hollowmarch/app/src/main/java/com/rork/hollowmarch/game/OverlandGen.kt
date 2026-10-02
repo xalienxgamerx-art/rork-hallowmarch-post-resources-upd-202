@@ -348,8 +348,65 @@ object OverlandGen {
                     arrivalIndex = 0, down = false, targetSiteId = site.id
                 )
             }
+            SiteKind.MINE -> {
+                // the works on the open ground: a hillside mouth framed in
+                // timber, the spill and gear of the digging about it
+                for (dx in -4..4) {
+                    if (abs(dx) <= 1) continue
+                    map.walls[(ly - 4) * size + lx + dx] = Textures.WALL_STONE
+                }
+                map.entities += Entity(
+                    x = cx, y = cy - 2.2f, spriteId = Sprites.HILLDOOR,
+                    kind = EntityKind.PROP, height = 1.8f, name = "the mine entrance"
+                )
+                map.entities += Entity(
+                    x = cx - 1.6f, y = cy - 1.4f, spriteId = Sprites.BEAM,
+                    kind = EntityKind.PROP, height = 0.5f, name = "stacked beams"
+                )
+                map.entities += Entity(
+                    x = cx + 1.8f, y = cy - 0.6f, spriteId = Sprites.CART,
+                    kind = EntityKind.PROP, height = 0.85f, name = "mine cart"
+                )
+                map.entities += Entity(
+                    x = cx - 2.4f, y = cy + 1.2f, spriteId = Sprites.CAIRN,
+                    kind = EntityKind.PROP, height = 0.9f, name = "spoil pile"
+                )
+                map.entities += Entity(
+                    x = cx + 2.4f, y = cy + 0.6f, spriteId = Sprites.CRATE,
+                    kind = EntityKind.PROP, height = 0.7f, name = "crate"
+                )
+                map.portals += Portal(
+                    x = cx, y = cy - 1.6f, label = "the mine entrance",
+                    prompt = "Enter ${site.name}", targetFloor = 0,
+                    arrivalIndex = 0, down = true, targetSiteId = site.id
+                )
+            }
+            SiteKind.QUARRY -> {
+                // the diggings on the open ground: a broad cut, its stone
+                // piled at the rim, no mouth and nothing under it
+                repeat(3) { i ->
+                    val ang = 0.6f + i * 2.1f
+                    map.entities += Entity(
+                        x = cx + cos(ang) * 2.6f, y = cy + sin(ang) * 2.2f,
+                        spriteId = Sprites.CAIRN, kind = EntityKind.PROP,
+                        height = 0.9f, name = "stone pile"
+                    )
+                }
+                map.entities += Entity(
+                    x = cx - 1.8f, y = cy - 1.4f, spriteId = Sprites.STANDING_STONE,
+                    kind = EntityKind.PROP, height = 0.8f, name = "cut block"
+                )
+                map.entities += Entity(
+                    x = cx + 2.0f, y = cy + 1.0f, spriteId = Sprites.CART,
+                    kind = EntityKind.PROP, height = 0.85f, name = "stone cart"
+                )
+                map.portals += Portal(
+                    x = cx, y = cy + 0.5f, label = "the quarry floor",
+                    prompt = "Enter ${site.name}", targetFloor = 0,
+                    arrivalIndex = 0, down = false, targetSiteId = site.id
+                )
+            }
             else -> {
-                // the shrine: a ring of stones around its door
                 repeat(8) { i ->
                     val ang = i * 6.28318f / 8
                     map.entities += Entity(

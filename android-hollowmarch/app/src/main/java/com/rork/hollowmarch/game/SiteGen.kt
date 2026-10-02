@@ -111,6 +111,8 @@ object SiteGen {
             SiteKind.VAULT -> 2 + rng.nextInt(2)
             SiteKind.BARROW -> if (rng.nextInt(4) == 0) 2 else 1
             SiteKind.RUIN -> 1 + rng.nextInt(2)
+            // the adit, and in richer ground a lower working beneath it
+            SiteKind.MINE -> 1 + rng.nextInt(2)
             else -> 0
         }
     }
@@ -121,6 +123,7 @@ object SiteGen {
         return when (site.kind) {
             SiteKind.VAULT, SiteKind.RUIN -> if (rng.nextInt(2) == 0) 2 else 1
             SiteKind.BARROW -> if (rng.nextInt(3) == 0) 2 else 1
+            SiteKind.MINE -> 1 // one adit, framed in timber
             else -> 0
         }
     }
@@ -177,6 +180,8 @@ object SiteGen {
             SiteKind.RUIN -> ruinSurface(world, site, roster, geography, day)
             SiteKind.CAMP -> camp(world, site, roster, geography, day, slainBeasts)
             SiteKind.SHRINE -> shrine(world, site, roster, geography, day, slainBeasts)
+            SiteKind.MINE -> mineSurface(world, site, roster, geography, day)
+            SiteKind.QUARRY -> quarrySurface(world, site, roster, geography, day)
             // The living places are built to their stage, as their folk stand.
             SiteKind.CAPITAL, SiteKind.CITY, SiteKind.TOWN, SiteKind.VILLAGE, SiteKind.HOLDFAST ->
                 SettlementGen.map(
@@ -458,6 +463,304 @@ object SiteGen {
         return map
     }
 
+    // ------------------------------------------------------------------ worksites
+
+    /**
+     * A mine's face: a hillside cut open, its dark adit framed in rough timber,
+     * the yard about it dressed with the spill of the digging. The entrance is
+     * the way down — floor 1 — and everything above it is only the top of the
+     * works: spoil, beams, carts, and the hands that walk between.
+     */
+    private fun mineSurface(
+        world: World,
+        site: Site,
+        roster: ClassRoster?,
+        geography: MaterialGeography?,
+        day: Int
+    ): GameMap {
+        val seed = mapSeed(world, site, 0)
+        val rng = Random(seed)
+        val size = 40
+        val map = openGround(seed, size, site.name)
+        val cultureId = cultureId(world, site)
+        val cx = size / 2
+
+        // the hillside: a scar of living rock across the north, cut open at the
+        // middle where the adit runs in
+        for (y in 5..9) {
+            for (x in 6 until size - 6) {
+                if (abs(x - cx) <= 1 && y >= 8) continue
+                val idx = y * size + x
+                map.walls[idx] =
+                    if (y == 5 || rng.nextInt(4) == 0) Textures.WALL_STONE else Textures.WALL_RUIN
+            }
+        }
+        // scree at the rock's foot, and the trodden way up to the mouth
+        for (x in 6 until size - 6) {
+            if (map.walls[10 * size + x] == 0 && rng.nextInt(2) == 0) {
+                map.floorTex[10 * size + x] = Textures.FLOOR_SCREE
+            }
+        }
+        for (y in 11 until size - 5) {
+            for (dx in -2..2) {
+                val idx = y * size + cx + dx
+                if (map.walls[idx] == 0) map.floorTex[idx] = Textures.FLOOR_ROAD
+            }
+        }
+
+        // the adit: a dark mouth framed in rough timber, the way down
+        val ex = cx + 0.5f
+        val ey = 9.5f
+        map.walls[8 * size + cx - 2] = Textures.WALL_TIMBER
+        map.walls[8 * size + cx + 2] = Textures.WALL_TIMBER
+        map.entities += Entity(
+            x = ex, y = ey, spriteId = Sprites.HILLDOOR,
+            kind = EntityKind.PROP, height = 1.8f, name = "the mine entrance"
+        )
+        map.portals += Portal(
+            x = ex, y = ey + 0.6f, label = "the mine entrance",
+            prompt = "Descend into ${site.name}", targetFloor = 1, arrivalIndex = 0, down = true
+        )
+        map.arrivalSpots += Pair(ex, ey + 1.4f)
+
+        // the spill of the digging: spoil piles about the rock's foot
+        repeat(5 + rng.nextInt(4)) {
+            val x = (7 + rng.nextInt(size - 14)) + rng.nextFloat()
+            val y = 10.5f + rng.nextFloat() * 3f
+            if (map.isWall(x, y)) return@repeat
+            map.entities += Entity(
+                x = x, y = y, spriteId = Sprites.STANDING_STONE,
+                kind = EntityKind.PROP, height = 0.5f + rng.nextFloat() * 0.4f, name = "spoil pile"
+            )
+        }
+        repeat(2) {
+            map.entities += Entity(
+                x = 8 + rng.nextInt(size - 16) + rng.nextFloat(), y = 11 + rng.nextFloat() * 2f,
+                spriteId = Sprites.CAIRN, kind = EntityKind.PROP, height = 0.95f, name = "spoil heap"
+            )
+        }
+        // timber, carts and crates: the works' own gear
+        repeat(2 + rng.nextInt(3)) {
+            val x = (7 + rng.nextInt(size - 14)) + rng.nextFloat()
+            val y = 12 + rng.nextFloat() * 5f
+            if (!map.isWall(x, y)) {
+                map.entities += Entity(
+                    x = x, y = y, spriteId = Sprites.BEAM,
+                    kind = EntityKind.PROP, height = 0.5f, name = "stacked beams"
+                )
+            }
+        }
+        repeat(1 + rng.nextInt(2)) {
+            map.entities += Entity(
+                x = cx + 2.5f + rng.nextFloat() * 2f, y = 14 + rng.nextFloat() * 3f,
+                spriteId = Sprites.CART, kind = EntityKind.PROP, height = 0.85f, name = "mine cart"
+            )
+        }
+        val level = 1 + day / 25
+        repeat(2 + rng.nextInt(2)) {
+            map.entities += MapFactory.container(
+                rng, (6 + rng.nextInt(size - 12)) + rng.nextFloat(), 12 + rng.nextFloat() * 6f,
+                Sprites.CRATE, 0.7f, "crate", level, chanceOfLoot = 1, cultureId, geography
+            )
+        }
+        repeat(2) {
+            map.entities += MapFactory.container(
+                rng, (6 + rng.nextInt(size - 12)) + rng.nextFloat(), 12 + rng.nextFloat() * 6f,
+                Sprites.URN, 0.6f, "barrel", level, chanceOfLoot = 1, cultureId, geography
+            )
+        }
+
+        // the tool shed, its keeper and the yard's few hands
+        val placed = mutableListOf<BuildingFootprint>()
+        SettlementGen.placeShedAt(map, placed, cx, 20, cx - 6, 16, 5, 4, "tool shed")
+        SettlementGen.wireDoors(map, site)
+        SettlementGen.placeResidents(map, rng, world, site, cx, 18, force = true)
+
+        // the hands themselves: at the mouth, the spoil, the carts
+        val names = workerNames(world, site, rng)
+        var hand = 0
+        fun worker(x: Float, y: Float) {
+            if (names.isEmpty() || map.isWall(x, y)) return
+            workHand(map, world, site, x, y, hand++, names[hand % names.size])
+        }
+        worker(ex - 1.8f, ey + 2.2f)
+        worker(ex + 1.6f, ey + 2.6f)
+        worker(cx - 3.2f, 12.4f)
+        worker(cx + 3.4f, 15.6f)
+        worker(cx + 0.8f, 19.5f)
+
+        map.spawnX = cx + 0.5f
+        map.spawnY = (size - 8).toFloat()
+        map.spawnAngle = -1.5708f
+        map.entities.removeAll { map.isWall(it.x, it.y) }
+        return map
+    }
+
+    /**
+     * A quarry's face: a broad cut open to the sky, stepped down by benches
+     * toward its working floor. No dark mouth and no way under — the diggings
+     * here are all above ground.
+     */
+    private fun quarrySurface(
+        world: World,
+        site: Site,
+        roster: ClassRoster?,
+        geography: MaterialGeography?,
+        day: Int
+    ): GameMap {
+        val seed = mapSeed(world, site, 0)
+        val rng = Random(seed)
+        val size = 48
+        val map = openGround(seed, size, site.name)
+        val cultureId = cultureId(world, site)
+        val cx = size / 2
+        val cy = size / 2
+
+        // the pit: benches stepped down toward the cut floor, open to the sky
+        for (y in cy - 9..cy + 9) {
+            for (x in cx - 9..cx + 9) {
+                val d = maxOf(abs(x - cx), abs(y - cy))
+                val idx = y * size + x
+                map.walls[idx] = 0
+                map.floorTex[idx] = when {
+                    d >= 8 -> Textures.FLOOR_SCREE
+                    d >= 6 -> Textures.FLOOR_HEATH
+                    d >= 4 -> Textures.FLOOR_MUD
+                    else -> Textures.FLOOR_FLAG
+                }
+            }
+        }
+        // the north face still stands: a worked wall cut by the ramp
+        for (x in cx - 6..cx + 6) {
+            if (abs(x - cx) == 3) continue
+            map.walls[(cy - 9) * size + x] = Textures.WALL_STONE
+        }
+        // the ramp: a trodden way down from the south rim to the cut floor
+        for (y in cy + 3..cy + 9) {
+            for (dx in -1..1) {
+                map.floorTex[y * size + cx + dx] = Textures.FLOOR_ROAD
+            }
+        }
+        // benches strewn with rubble, cut blocks waiting on the floor
+        for (ring in 4..8 step 2) {
+            repeat(4 + rng.nextInt(3)) {
+                val ang = rng.nextFloat() * 6.28318f
+                val x = cx + cos(ang) * ring + 0.5f
+                val y = cy + sin(ang) * ring + 0.5f
+                if (!map.isWall(x, y)) {
+                    map.entities += Entity(
+                        x = x, y = y, spriteId = Sprites.STANDING_STONE,
+                        kind = EntityKind.PROP, height = 0.45f, name = "rubble"
+                    )
+                }
+            }
+        }
+        repeat(3 + rng.nextInt(3)) {
+            val x = cx - 3 + rng.nextInt(7) + rng.nextFloat()
+            val y = cy - 3 + rng.nextInt(7) + rng.nextFloat()
+            if (!map.isWall(x, y)) {
+                map.entities += Entity(
+                    x = x, y = y, spriteId = Sprites.STANDING_STONE,
+                    kind = EntityKind.PROP, height = 0.8f, name = "cut block"
+                )
+            }
+        }
+        // stone piles at the rim, and the loading apron south of the pit
+        repeat(3) {
+            val ang = 0.6f + it * 2.1f
+            map.entities += Entity(
+                x = cx + cos(ang) * 10.5f, y = cy + sin(ang) * 10.5f,
+                spriteId = Sprites.CAIRN, kind = EntityKind.PROP, height = 1.0f, name = "stone pile"
+            )
+        }
+        for (dx in -4..4) {
+            map.floorTex[(cy + 11) * size + cx + dx] = Textures.FLOOR_ROAD
+        }
+        val level = 1 + day / 25
+        repeat(2 + rng.nextInt(2)) {
+            map.entities += MapFactory.container(
+                rng, cx - 4 + rng.nextInt(9) + rng.nextFloat(), cy + 10 + rng.nextFloat() * 2.5f,
+                Sprites.CRATE, 0.7f, "crate", level, chanceOfLoot = 1, cultureId, geography
+            )
+        }
+        repeat(2) {
+            map.entities += MapFactory.container(
+                rng, cx - 4 + rng.nextInt(9) + rng.nextFloat(), cy + 10 + rng.nextFloat() * 2.5f,
+                Sprites.URN, 0.6f, "barrel", level, chanceOfLoot = 1, cultureId, geography
+            )
+        }
+        repeat(1 + rng.nextInt(2)) {
+            map.entities += Entity(
+                x = cx - 3 + rng.nextFloat() * 6f, y = cy + 8 + rng.nextFloat() * 2f,
+                spriteId = Sprites.CART, kind = EntityKind.PROP, height = 0.85f, name = "stone cart"
+            )
+        }
+        // the track out: the road runs south to the province
+        for (y in cy + 13 until size - 5) {
+            for (dx in -1..1) {
+                val idx = y * size + cx + dx
+                if (map.walls[idx] == 0) map.floorTex[idx] = Textures.FLOOR_ROAD
+            }
+        }
+
+        // the tool shed on the rim
+        val placed = mutableListOf<BuildingFootprint>()
+        SettlementGen.placeShedAt(map, placed, cx, cy + 14, cx + 6, cy + 11, 5, 4, "tool shed")
+        SettlementGen.wireDoors(map, site)
+        SettlementGen.placeResidents(map, rng, world, site, cx, cy + 13, force = true)
+
+        // the hands: on the benches, at the face, at the load
+        val names = workerNames(world, site, rng)
+        var hand = 0
+        fun worker(x: Float, y: Float) {
+            if (names.isEmpty() || map.isWall(x, y)) return
+            workHand(map, world, site, x, y, hand++, names[hand % names.size])
+        }
+        worker(cx - 2.5f, cy - 5.5f)
+        worker(cx + 2.5f, cy - 4.5f)
+        worker(cx - 4.5f, cy + 2.5f)
+        worker(cx + 3.5f, cy + 4.5f)
+        worker(cx + 1.5f, cy + 11.5f)
+        worker(cx - 2.0f, cy + 12.0f)
+        worker(cx + 7.5f, cy + 12.5f)
+
+        map.spawnX = cx + 0.5f
+        map.spawnY = (size - 8).toFloat()
+        map.spawnAngle = -1.5708f
+        map.entities.removeAll { map.isWall(it.x, it.y) }
+        return map
+    }
+
+    /** The works' own hands, named from the province's figures, dealt diggings trades. */
+    private fun workerNames(world: World, site: Site, rng: Random): List<String> =
+        world.figures
+            .filter { it.cultureId == cultureId(world, site) }
+            .map { it.name }
+            .ifEmpty { world.figures.map { it.name } }
+            .shuffled(rng)
+
+    /** One hand of the works: a resident worker, harmless, dealt its trade from the site. */
+    private fun workHand(
+        map: GameMap,
+        world: World,
+        site: Site,
+        x: Float,
+        y: Float,
+        index: Int,
+        name: String
+    ) {
+        val role = RoleBook.worksiteWorkerRole(world.seed, site, index)
+        map.entities += Entity(
+            x = x, y = y, spriteId = Sprites.PILGRIM,
+            kind = EntityKind.ENEMY, height = 0.98f,
+            name = name, resident = true, homeBuilding = -1,
+            role = role, workBuilding = -1,
+            personality = PersonalityBook.deal(
+                PersonalityBook.key(world.seed, "${site.id}:w$index"), role
+            )
+        )
+    }
+
     // ------------------------------------------------------------------ underground
 
     private class CarveSpec(
@@ -486,6 +789,8 @@ object SiteGen {
         val spec = when (site.kind) {
             SiteKind.BARROW -> CarveSpec(40, 6 + rng.nextInt(3), 3, 5, 3, 5, wide = false)
             SiteKind.RUIN -> CarveSpec(44, 6 + rng.nextInt(3), 5, 9, 4, 7, wide = true)
+            // hand-cut workings: narrow tunnels and small chambers off the main drive
+            SiteKind.MINE -> CarveSpec(40, 5 + rng.nextInt(3), 3, 6, 3, 6, wide = false)
             else -> CarveSpec(46, 8 + rng.nextInt(3), 5, 8, 5, 8, wide = true)
         }
         val map = GameMap(spec.size, spec.size, outdoor = false, title = floorTitle(site.name, floor))
@@ -591,6 +896,48 @@ object SiteGen {
                     if (rng.nextInt(skin.brazierEvery.coerceAtLeast(1)) == 0) roomBrazier(map, rng, room)
                     repeat(rng.nextInt(3)) { roomEnemy(map, rng, room, levelBase, roster, cultureId, geography) }
                 }
+                SiteKind.MINE -> {
+                    // a working face, not a warren: light, spoil, timber and ore
+                    if (rng.nextInt(2) == 0) roomBrazier(map, rng, room)
+                    fun inRoom(): Pair<Float, Float> = Pair(
+                        room.x + 0.8f + rng.nextFloat() * (room.w - 1.6f),
+                        room.y + 0.8f + rng.nextFloat() * (room.h - 1.6f)
+                    )
+                    repeat(rng.nextInt(3)) {
+                        val (px, py) = inRoom()
+                        map.entities += Entity(
+                            x = px, y = py, spriteId = Sprites.STANDING_STONE,
+                            kind = EntityKind.PROP, height = 0.55f, name = "spill"
+                        )
+                    }
+                    if (rng.nextInt(2) == 0) {
+                        val (px, py) = inRoom()
+                        map.entities += Entity(
+                            x = px, y = py, spriteId = Sprites.BEAM,
+                            kind = EntityKind.PROP, height = 0.45f, name = "timber props"
+                        )
+                    }
+                    if (rng.nextInt(2) == 0) {
+                        val (px, py) = inRoom()
+                        map.entities += Entity(
+                            x = px, y = py, spriteId = Sprites.STANDING_STONE,
+                            kind = EntityKind.PROP, height = 0.7f, name = "ore-bearing rock"
+                        )
+                    }
+                    if (rng.nextInt(3) == 0) {
+                        map.entities += MapFactory.container(
+                            rng, room.cx + 0.5f, room.cy + 0.5f, Sprites.CRATE, 0.7f, "crate",
+                            levelBase, chanceOfLoot = 1, cultureId, geography
+                        )
+                    }
+                    if (rng.nextInt(4) == 0) {
+                        val (px, py) = inRoom()
+                        map.entities += Entity(
+                            x = px, y = py, spriteId = Sprites.CART,
+                            kind = EntityKind.PROP, height = 0.8f, name = "mine cart"
+                        )
+                    }
+                }
                 else -> {
                     if (rng.nextInt(skin.brazierEvery.coerceAtLeast(1)) == 0) roomBrazier(map, rng, room)
                     repeat(1 + rng.nextInt(2)) { roomEnemy(map, rng, room, levelBase, roster, cultureId, geography) }
@@ -610,7 +957,18 @@ object SiteGen {
             }
         }
 
-        if (floor == floors) {
+        // the underground hands: a working face keeps a hand or two at it
+        if (site.kind == SiteKind.MINE) {
+            val names = workerNames(world, site, rng)
+            rooms.take(2).forEachIndexed { i, room ->
+                if (names.isNotEmpty()) {
+                    workHand(map, world, site, room.cx + 0.5f, room.cy + 1.5f, i, names[i % names.size])
+                }
+            }
+        }
+
+        // a mine's lowest level is still a workplace: no warden, no hoard
+        if (floor == floors && site.kind != SiteKind.MINE) {
             val boss = bossFor(world, site, slainBeasts)
             val bossLevel = 1 + floors * 2 + floor
             val hall = rooms.last()

@@ -175,7 +175,9 @@ enum class SiteKind(val label: String) {
     RUIN("ruin"),
     BARROW("barrow"),
     VAULT("vault"),
-    SHRINE("shrine")
+    SHRINE("shrine"),
+    MINE("mine"),
+    QUARRY("quarry")
 }
 
 data class Site(

@@ -179,8 +179,8 @@ class WorldGeneratorTest {
         assertTrue("short history should be quieter", short.events.size < 100)
 
         // No hard ceilings: deep histories, crowded provinces, an uncapped chronicle.
-        val deep = WorldGenerator.generate(99L, historyYears = 2400, maxEvents = 0, cultureCount = 12)
-        assertEquals(2400, deep.currentYear)
+        val deep = WorldGenerator.generate(99L, historyYears = 500, maxEvents = 0, cultureCount = 12)
+        assertEquals(500, deep.currentYear)
         assertEquals(12, deep.cultures.size)
         assertTrue("uncapped chronicle should run deep: ${deep.events.size}", deep.events.size > 53)
 

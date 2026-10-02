@@ -197,8 +197,12 @@ object WorldGenerator {
         // Successions whose passed-over blood still has its claim to press.
         val pendingContests = mutableListOf<Triple<Int, Int, Int>>()
 
-        /** Finds open, livable ground: no sea, no peaks, no crowding the neighbours. */
-        fun placeFor(rng: Random, spacing: Float): Pair<Float, Float> {
+        /**
+         * Finds open, livable ground: no sea, no peaks, no crowding the neighbours.
+         * [rocky] places the diggings instead: high ground only — hills and the
+         * skirts of peaks, where ore and stone belong — never the tilled flats.
+         */
+        fun placeFor(rng: Random, spacing: Float, rocky: Boolean = false): Pair<Float, Float> {
             var bestX = 0.5f
             var bestY = 0.5f
             var best = -Float.MAX_VALUE
@@ -207,7 +211,10 @@ object WorldGenerator {
                 val x = 0.10f + rng.nextFloat() * 0.80f
                 val y = 0.10f + rng.nextFloat() * 0.80f
                 val h = terrain.heightAt(x, y)
-                if (h < 0.42f || h > 0.74f) return@repeat
+                if (rocky) {
+                    // the hills band exactly: 0.60..0.76 is hills, above is peak skirt
+                    if (h < 0.60f || h > 0.84f) return@repeat
+                } else if (h < 0.42f || h > 0.74f) return@repeat
                 found = true
                 // the nearest neighbour, from the grid's own neighborhood: five cells
                 // out clears the widest spacing any kind of place asks for
@@ -227,11 +234,27 @@ object WorldGenerator {
                 }
                 val score = minOf(nearest / spacing, 1f) * 10f +
                     (if (riverAt(x, y)) 1.5f else 0f) +
+                    (if (rocky && terrain.biomeAt(x, y).let { it == Biome.HILLS || it == Biome.PEAK }) 1.5f else 0f) +
                     rng.nextFloat()
                 if (score > best) {
                     best = score
                     bestX = x
                     bestY = y
+                }
+            }
+            if (!found && rocky) {
+                // the hills' skirts: take the highest ground of a fresh handful
+                // rather than let a mine or quarry land on the flats
+                repeat(14) {
+                    val x = 0.10f + rng.nextFloat() * 0.80f
+                    val y = 0.10f + rng.nextFloat() * 0.80f
+                    val h = terrain.heightAt(x, y)
+                    if (h >= 0.60f && h > best) {
+                        best = h
+                        bestX = x
+                        bestY = y
+                        found = true
+                    }
                 }
             }
             if (!found) {
@@ -246,13 +269,16 @@ object WorldGenerator {
             sovereign: Int?,
             note: String,
             foundedYear: Int = 0,
-            forcedName: String? = null
+            forcedName: String? = null,
+            rocky: Boolean = false
         ): Site {
             val ph = phonetics.getValue(cultureId)
             val name = forcedName ?: when (kind) {
                 SiteKind.BARROW -> "${ADJECTIVES.random(rng)} Barrow"
                 SiteKind.SHRINE -> "Shrine of ${ph.word(rng, 2)}"
                 SiteKind.CAMP -> "${ph.word(rng, 1)}${SITE_SUFFIX.random(rng)} Camp"
+                SiteKind.MINE -> "${ADJECTIVES.random(rng)} Mine"
+                SiteKind.QUARRY -> "${ADJECTIVES.random(rng)} Quarry"
                 else -> "${ph.word(rng, 1)}${SITE_SUFFIX.random(rng)}"
             }
             val (px, py) = placeFor(
@@ -264,7 +290,8 @@ object WorldGenerator {
                     SiteKind.TOWN -> 4f / WORLD_LEAGUES
                     SiteKind.VILLAGE -> 1.6f / WORLD_LEAGUES
                     else -> 1.0f / WORLD_LEAGUES
-                }
+                },
+                rocky = kind == SiteKind.MINE || kind == SiteKind.QUARRY
             )
             val site = Site(
                 id = nextSiteId++,
@@ -1184,6 +1211,8 @@ object WorldGenerator {
                     in 75..84 -> SiteKind.HOLDFAST
                     in 85..92 -> SiteKind.TOWN
                     in 93..96 -> SiteKind.RUIN
+                    97 -> SiteKind.MINE
+                    98 -> SiteKind.QUARRY
                     else -> SiteKind.SHRINE
                 }
                 val newSite = coinSite(
@@ -1744,6 +1773,13 @@ object WorldGenerator {
         )
         reseat(keepers.copy(seatSiteId = barrow.id))
         val keeperPresence = listOf(barrow.id, vault.id)
+
+        // The province's diggings: a land that never cut stone never built. The
+        // founding years coin more; these stand whatever the years hold.
+        repeat(2) {
+            coinSite(SiteKind.MINE, keeperCulture.id, null, "an old working, still worked", rocky = true)
+            coinSite(SiteKind.QUARRY, keeperCulture.id, null, "cut into the living rock", rocky = true)
+        }
 
         // --- Simulate the centuries. ---
         var year = 20

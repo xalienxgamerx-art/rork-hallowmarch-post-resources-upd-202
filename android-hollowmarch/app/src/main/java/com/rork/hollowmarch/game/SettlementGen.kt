@@ -2,6 +2,7 @@ package com.rork.hollowmarch.game
 
 import com.rork.hollowmarch.world.Biome
 import com.rork.hollowmarch.world.Site
+import com.rork.hollowmarch.world.SiteKind
 import com.rork.hollowmarch.world.World
 import kotlin.math.abs
 import kotlin.math.cos
@@ -179,7 +180,8 @@ object SettlementGen {
                 )
             )
         }
-        // the homeless few, about the well and the square
+        // the homeless few, about the well and the square — at the diggings,
+        // the workers idling near the heart of the works take their place
         var homeless = 0
         repeat(1 + rng.nextInt(2)) {
             val ang = rng.nextFloat() * 6.28f
@@ -188,7 +190,11 @@ object SettlementGen {
             val by = cy + 0.5f + sin(ang) * r
             if (!map.isWall(bx, by)) {
                 val hIndex = homeless++
-                val hRole = RoleBook.homelessRole(world.seed, site, hIndex)
+                val hRole = if (site.kind == SiteKind.MINE || site.kind == SiteKind.QUARRY) {
+                    RoleBook.worksiteWorkerRole(world.seed, site, hIndex)
+                } else {
+                    RoleBook.homelessRole(world.seed, site, hIndex)
+                }
                 map.entities += Entity(
                     x = bx, y = by, spriteId = Sprites.PILGRIM,
                     kind = EntityKind.ENEMY, height = 0.95f,
@@ -246,6 +252,27 @@ object SettlementGen {
         drawBuilding(map, tent, Textures.WALL_TIMBER, Textures.FLOOR_MUD)
         placed += tent
         return tent
+    }
+
+    /**
+     * A work shed at the diggings: timber walls, a mud floor, its door toward
+     * the heart of the works. The works' own hands keep it.
+     */
+    internal fun placeShedAt(
+        map: GameMap,
+        placed: MutableList<BuildingFootprint>,
+        cx: Int,
+        cy: Int,
+        x: Int,
+        y: Int,
+        w: Int,
+        h: Int,
+        name: String
+    ): BuildingFootprint {
+        val shed = withDoor(x, y, w, h, cx, cy, "shed", name)
+        drawBuilding(map, shed, Textures.WALL_TIMBER, Textures.FLOOR_MUD)
+        placed += shed
+        return shed
     }
 
     /** Find a clear spot in the yard band and pitch a tent there. */

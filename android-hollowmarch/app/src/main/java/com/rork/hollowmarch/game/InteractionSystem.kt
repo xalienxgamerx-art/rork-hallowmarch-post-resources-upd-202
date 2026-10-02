@@ -351,6 +351,8 @@ class InteractionSystem(private val engine: GameEngine, private val rng: Random)
         SiteKind.RUIN -> "${site.name} is fallen walls and cellars now; folk say the old keepers never left"
         SiteKind.CAMP -> "a warband keeps its fires at ${site.name}; walk wide or walk armed"
         SiteKind.SHRINE -> "the stones still stand at ${site.name}; leave a coin and pass quietly"
+        SiteKind.MINE -> "the carts still roll from ${site.name}; the pit never wholly sleeps"
+        SiteKind.QUARRY -> "the cutters at ${site.name} split the hill itself for building stone"
         else -> "${site.name} stands on the road still, and its wells are sweet this year"
     }
 

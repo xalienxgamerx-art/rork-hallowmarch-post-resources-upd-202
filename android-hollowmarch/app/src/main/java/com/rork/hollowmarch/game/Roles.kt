@@ -747,6 +747,11 @@ object RoleBook {
             "guild hall" -> pick(rng, listOf("Merchant", "Scholar", "Broker"))
             "market" -> pick(rng, listOf("Merchant", "Market Vendor", "Grocer"))
             "tent" -> pick(rng, listOf("Bandit", "Poacher", "Wanderer"))
+            "shed" -> when (site.kind) {
+                SiteKind.MINE -> pick(rng, MINE_ROLES)
+                SiteKind.QUARRY -> pick(rng, QUARRY_ROLES)
+                else -> pick(rng, listOf("Wanderer", "Carpenter", "Wright"))
+            }
             else -> civilian(worldSeed, site, biome, buildingIndex)
         }
     }
@@ -760,6 +765,22 @@ object RoleBook {
         )
     }
 
+    /** The trades a mine keeps on: the pit's own hands. */
+    private val MINE_ROLES = listOf("Miner", "Miner", "Quarryman", "Prospector", "Smelter")
+
+    /** The trades a quarry keeps on: the cutters and their haulers. */
+    private val QUARRY_ROLES = listOf("Quarryman", "Quarryman", "Stonemason", "Prospector", "Smelter")
+
+    /**
+     * A worker's trade at the diggings — a mine or a quarry deals from its own
+     * works, whatever land it stands in.
+     */
+    fun worksiteWorkerRole(worldSeed: Long, site: Site, index: Int): String {
+        val rng = Random(worldSeed * 77L + site.id * 8191L + 31337L + index * 29L)
+        val pool = if (site.kind == SiteKind.QUARRY) QUARRY_ROLES else MINE_ROLES
+        return pick(rng, pool)
+    }
+
     /**
      * A civilian calling for a house's keeper, drawn from what the land, the
      * place's works and the place's size would actually sustain.
@@ -768,6 +789,13 @@ object RoleBook {
         val rng = Random(worldSeed * 131L + site.id * 7907L + index * 53L)
         val stage = site.kind
         val pool = mutableListOf<String>()
+
+        // the diggings deal their own trades, whatever land they stand in
+        when (site.kind) {
+            SiteKind.MINE -> pool += MINE_ROLES
+            SiteKind.QUARRY -> pool += QUARRY_ROLES
+            else -> {}
+        }
 
         // the land's own work comes first
         when (biome) {

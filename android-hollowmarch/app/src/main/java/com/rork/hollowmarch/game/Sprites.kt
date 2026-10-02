@@ -98,11 +98,15 @@ object Sprites {
     const val W_FRANCISCA = 84
     const val W_CHAKRAM = 85
     const val W_SHURIKEN = 86
+    // The works: the furniture of digging — crates, carts and cut timber.
+    const val CRATE = 87
+    const val CART = 88
+    const val BEAM = 89
     const val P_ARROW = 78
     const val P_BOLT = 79
     const val P_BALL = 80
     const val P_SHOT = 81
-    const val COUNT = 87
+    const val COUNT = 90
 
     private lateinit var sheet: Array<Sprite>
     private var built = false
@@ -130,6 +134,9 @@ object Sprites {
                 HILLDOOR -> hilldoor(rng)
                 WATCHFIRE -> watchfire(rng)
                 PILGRIM -> pilgrim(rng)
+                CRATE -> crate(rng)
+                CART -> cart(rng)
+                BEAM -> beamStack(rng)
                 W_BLADE -> wBlade(rng)
                 W_AXE -> wAxe(rng)
                 W_MACE -> wMace(rng)
@@ -446,6 +453,54 @@ object Sprites {
         p.limb(4, 20, 9, 17, 2, clay, rng)
         p.limb(24, 20, 19, 17, 2, clay, rng)
         p.rect(8, 18, 20, 20, 0x4C3E28, rng, 8)
+        return p.build()
+    }
+
+    /** A workaday crate: plank sides, heavier rails, the yard's own furniture. */
+    private fun crate(rng: Random): Sprite {
+        val p = Painter(30, 28)
+        val wood = 0x6B5230
+        p.rect(4, 6, 25, 27, wood, rng)
+        for (x in 4..25 step 4) {
+            p.rect(x, 6, x + 1, 27, scale(wood, 0.7f), rng, 6)
+        }
+        p.rect(4, 6, 25, 9, scale(wood, 1.15f), rng, 6)
+        p.rect(4, 24, 25, 27, scale(wood, 0.8f), rng, 6)
+        return p.build()
+    }
+
+    /** A mine cart: a shored bed on two wheels, waiting to be filled. */
+    private fun cart(rng: Random): Sprite {
+        val p = Painter(56, 44)
+        val timber = 0x4A3826
+        val iron = 0x3A3A40
+        for (y in 10..30) {
+            val inset = ((y - 10) * 0.15f).toInt()
+            for (x in (8 + inset)..(47 - inset)) {
+                val n = Textures.valueNoise(x * 0.3f, y * 0.3f, 5)
+                p.put(x, y, jitter(scale(timber, 0.8f + n * 0.4f), rng, 14))
+            }
+        }
+        p.rect(8, 8, 47, 12, scale(timber, 1.2f), rng, 8)
+        p.ellipse(16, 36, 8, 7, iron, rng)
+        p.ellipse(40, 36, 8, 7, iron, rng)
+        p.ellipse(16, 36, 3, 2, scale(iron, 0.6f), rng)
+        p.ellipse(40, 36, 3, 2, scale(iron, 0.6f), rng)
+        p.limb(4, 14, 8, 12, 2, timber, rng)
+        p.limb(47, 12, 52, 14, 2, timber, rng)
+        return p.build()
+    }
+
+    /** A stack of rough-hewn beams: the pit's timber, cut and squared. */
+    private fun beamStack(rng: Random): Sprite {
+        val p = Painter(48, 26)
+        val wood = 0x5C4A2E
+        for (i in 0 until 3) {
+            val y0 = 20 - i * 6
+            p.rect(4, y0, 43, y0 + 5, scale(wood, 0.85f + i * 0.12f), rng, 8)
+            p.ellipse(6, y0 + 2, 2, 2, scale(wood, 1.3f), rng)
+            p.ellipse(41, y0 + 2, 2, 2, scale(wood, 1.3f), rng)
+        }
         return p.build()
     }
 
