@@ -1,7 +1,10 @@
 package com.rork.hollowmarch.game
 
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 import kotlin.random.Random
 
 /** A flat, camera-facing billboard, painted once at startup like a 1996 sprite sheet. */
@@ -212,6 +215,35 @@ object Sprites {
     }
 
     operator fun get(id: Int): Sprite = sheet[id.coerceIn(0, COUNT - 1)]
+
+    // The walking dead of the painted sheets: four facings per creature — the
+    // face, the nose turned to the screen's right, the nose to the screen's
+    // left, and the back. Brought in from art at the app's start; the drawn
+    // shapes stand in wherever no art was given.
+    private val creatureViews = arrayOfNulls<Array<Sprite>>(COUNT)
+
+    /** Give one creature its four facings: front, right-facing, left-facing, back. */
+    fun installCreatureViews(id: Int, front: Sprite, right: Sprite, left: Sprite, back: Sprite) {
+        creatureViews[id] = arrayOf(front, right, left, back)
+    }
+
+    /**
+     * The board a creature shows the eye: its own facing read against the
+     * camera's. With no art installed the one drawn shape answers for all sides.
+     */
+    fun viewFor(id: Int, facing: Float, viewAngle: Float): Sprite {
+        val views = creatureViews.getOrNull(id) ?: return this[id]
+        var rel = facing - viewAngle
+        val tau = 2f * PI.toFloat()
+        while (rel > PI.toFloat()) rel -= tau
+        while (rel < -PI.toFloat()) rel += tau
+        return when {
+            cos(rel) > 0.5f -> views[3]        // it walks as you look: the back
+            cos(rel) < -0.5f -> views[0]       // it comes at you: the face
+            sin(rel) > 0f -> views[1]          // its nose to the screen's right
+            else -> views[2]                   // its nose to the screen's left
+        }
+    }
 
     private class Painter(val w: Int, val h: Int) {
         val px = IntArray(w * h)

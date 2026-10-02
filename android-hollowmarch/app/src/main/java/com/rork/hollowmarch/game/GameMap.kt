@@ -75,6 +75,15 @@ class Entity(
     /** The soul's idle stroll target on the streets. */
     var wanderX: Float = 0f,
     var wanderY: Float = 0f,
+    /** Where this soul's working day stands: the spot its trade keeps it at. -1 keeps none. */
+    var postX: Float = -1f,
+    var postY: Float = -1f,
+    /**
+     * The road home for a hand that walks to its work: where it steps off the
+     * map toward its own hearth. -1 when the soul keeps no road of its own.
+     */
+    var commuteX: Float = -1f,
+    var commuteY: Float = -1f,
     /**
      * The world's own name for this thing: a stable, deterministic id, assigned
      * by [SceneBinder.stamp] when the scene is built. Blank for scenery and for

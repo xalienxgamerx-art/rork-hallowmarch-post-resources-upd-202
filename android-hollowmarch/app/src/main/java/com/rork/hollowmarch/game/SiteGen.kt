@@ -6,6 +6,7 @@ import com.rork.hollowmarch.world.SiteKind
 import com.rork.hollowmarch.world.World
 import com.rork.hollowmarch.world.isSettlement
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -150,18 +151,20 @@ object SiteGen {
         geography: MaterialGeography?,
         day: Int,
         slainBeasts: Set<Int> = emptySet(),
-        folk: Int = -1
+        folk: Int = -1,
+        /** The minute of the day this ground is seen at: the works' hands walk by it. */
+        minutes: Int = 480
     ): GameMap {
         if (floor >= BUILDING_FLOOR_BASE) {
             // a building's inside: the yard is built first, for its footprints
-            val yard = surface(world, site, roster, geography, day, slainBeasts, folk)
+            val yard = surface(world, site, roster, geography, day, slainBeasts, folk, minutes)
             val idx = floor - BUILDING_FLOOR_BASE
             val room = yard.buildings.getOrNull(idx) ?: return yard
             return buildingInterior(world, site, idx, room, cultureId(world, site), day, geography)
         }
         val floors = floorCount(world, site)
         return if (floor <= 0 || floors == 0) {
-            surface(world, site, roster, geography, day, slainBeasts, folk)
+            surface(world, site, roster, geography, day, slainBeasts, folk, minutes)
         } else {
             underground(world, site, floor.coerceAtMost(floors), roster, geography, slainBeasts)
         }
@@ -174,7 +177,8 @@ object SiteGen {
         geography: MaterialGeography?,
         day: Int,
         slainBeasts: Set<Int>,
-        folk: Int
+        folk: Int,
+        minutes: Int = 480
     ): GameMap {
         val map = when (site.kind) {
             SiteKind.VAULT -> vaultSurface(world, site, roster, geography, day)
@@ -182,8 +186,8 @@ object SiteGen {
             SiteKind.RUIN -> ruinSurface(world, site, roster, geography, day)
             SiteKind.CAMP -> camp(world, site, roster, geography, day, slainBeasts)
             SiteKind.SHRINE -> shrine(world, site, roster, geography, day, slainBeasts)
-            SiteKind.MINE -> mineSurface(world, site, roster, geography, day)
-            SiteKind.QUARRY -> quarrySurface(world, site, roster, geography, day)
+            SiteKind.MINE -> mineSurface(world, site, roster, geography, day, minutes)
+            SiteKind.QUARRY -> quarrySurface(world, site, roster, geography, day, minutes)
             // The living places are built to their stage, as their folk stand.
             SiteKind.CAPITAL, SiteKind.CITY, SiteKind.TOWN, SiteKind.VILLAGE, SiteKind.HOLDFAST ->
                 SettlementGen.map(
@@ -483,7 +487,8 @@ object SiteGen {
         site: Site,
         roster: ClassRoster?,
         geography: MaterialGeography?,
-        day: Int
+        day: Int,
+        minutes: Int
     ): GameMap {
         val seed = mapSeed(world, site, 0)
         val rng = Random(seed)
@@ -588,7 +593,7 @@ object SiteGen {
         var hand = 0
         fun worker(x: Float, y: Float) {
             if (names.isEmpty() || map.isWall(x, y)) return
-            workHand(map, world, site, x, y, hand++, names[hand % names.size])
+            commuteHand(map, world, site, x, y, hand++, names[hand % names.size], minutes)
         }
         worker(ex - 1.8f, ey + 2.2f)
         worker(ex + 1.6f, ey + 2.6f)
@@ -614,7 +619,8 @@ object SiteGen {
         site: Site,
         roster: ClassRoster?,
         geography: MaterialGeography?,
-        day: Int
+        day: Int,
+        minutes: Int
     ): GameMap {
         val seed = mapSeed(world, site, 0)
         val rng = Random(seed)
@@ -722,7 +728,7 @@ object SiteGen {
         var hand = 0
         fun worker(x: Float, y: Float) {
             if (names.isEmpty() || map.isWall(x, y)) return
-            workHand(map, world, site, x, y, hand++, names[hand % names.size])
+            commuteHand(map, world, site, x, y, hand++, names[hand % names.size], minutes)
         }
         worker(cx - 2.5f, cy - 5.5f)
         worker(cx + 2.5f, cy - 4.5f)
@@ -761,7 +767,11 @@ object SiteGen {
         x: Float,
         y: Float,
         index: Int,
-        name: String
+        name: String,
+        postX: Float = -1f,
+        postY: Float = -1f,
+        commuteX: Float = -1f,
+        commuteY: Float = -1f
     ) {
         val role = RoleBook.worksiteWorkerRole(world.seed, site, index)
         // the hands are the host settlement's own folk: their hearts are dealt
@@ -772,10 +782,68 @@ object SiteGen {
             kind = EntityKind.ENEMY, height = 0.98f,
             name = name, resident = true, homeBuilding = -1,
             role = role, workBuilding = -1,
+            postX = postX, postY = postY, commuteX = commuteX, commuteY = commuteY,
             personality = PersonalityBook.deal(
                 PersonalityBook.key(world.seed, "${host.id}:w$index"), role
             )
         )
+    }
+
+    /** The hour the hands step onto the road, and the hour the last lays down its tools. */
+    private const val SHIFT_IN = 5 * 60 + 30
+    private const val SHIFT_OUT = 19 * 60
+
+    /**
+     * A hand of the works set where its day has brought it: it steps onto the
+     * ground over the road that runs toward its host settlement, and stands at
+     * its post only when the morning's walk is done. Before the walk and after
+     * dusk the works keep no hands — they are on the road, or home.
+     */
+    private fun commuteHand(
+        map: GameMap,
+        world: World,
+        site: Site,
+        postX: Float,
+        postY: Float,
+        index: Int,
+        name: String,
+        minutes: Int
+    ) {
+        val host = worksHost(world, site)
+        val entry = if (host === site) null else roadEntry(map, atan2(host.y - site.y, host.x - site.x))
+        if (entry == null) {
+            // no road to walk: a works with no living host keeps its own folk
+            workHand(map, world, site, postX, postY, index, name, postX, postY)
+            return
+        }
+        if (minutes < SHIFT_IN || minutes >= SHIFT_OUT) return
+        // the morning's walk: by the hour of eight every hand stands at its post
+        val t = ((minutes - SHIFT_IN).toFloat() / (8 * 60 - SHIFT_IN)).coerceIn(0f, 1f)
+        var x = entry.first + (postX - entry.first) * t
+        var y = entry.second + (postY - entry.second) * t
+        if (map.isWall(x, y)) {
+            x = entry.first
+            y = entry.second
+        }
+        workHand(map, world, site, x, y, index, name, postX, postY, entry.first, entry.second)
+    }
+
+    /** Where the road meets this ground: the edge point along the bearing, snapped to open land. */
+    private fun roadEntry(map: GameMap, bearing: Float): Pair<Float, Float> {
+        val reach = minOf(map.width, map.height) / 2f - 2f
+        val bx = map.width / 2f + cos(bearing) * reach
+        val by = map.height / 2f + sin(bearing) * reach
+        if (!map.isWall(bx, by)) return bx to by
+        for (r in 1..6) {
+            for (dy in -r..r) {
+                for (dx in -r..r) {
+                    val nx = (bx + dx).coerceIn(1.5f, map.width - 1.5f)
+                    val ny = (by + dy).coerceIn(1.5f, map.height - 1.5f)
+                    if (!map.isWall(nx, ny)) return nx to ny
+                }
+            }
+        }
+        return bx.coerceIn(1.5f, map.width - 1.5f) to by.coerceIn(1.5f, map.height - 1.5f)
     }
 
     /**

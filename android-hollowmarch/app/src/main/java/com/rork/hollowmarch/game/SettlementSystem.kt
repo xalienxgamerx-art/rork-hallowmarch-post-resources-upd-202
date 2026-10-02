@@ -55,6 +55,11 @@ class SettlementSystem(private val engine: GameEngine, private val rng: Random) 
         val gone = mutableListOf<Entity>()
         map.entities.forEach { entity ->
             if (!entity.resident || !entity.alive) return@forEach
+            // a hand of the works walks its own road: in by morning, out by dusk
+            if (entity.commuteX >= 0f) {
+                stepWorksiteHand(entity, dt, gone)
+                return@forEach
+            }
             if (night && entity.homeBuilding >= 0) {
                 val home = map.buildings.getOrNull(entity.homeBuilding) ?: return@forEach
                 val dx = home.doorX + 0.5f - entity.x
@@ -93,16 +98,7 @@ class SettlementSystem(private val engine: GameEngine, private val rng: Random) 
                     stepSoul(entity, target.first, target.second, dt, 0.55f)
                 } else {
                     // at its post: a slow, small sway around the spot
-                    if (entity.wanderPhase <= 0f) {
-                        entity.wanderPhase = 3f + rng.nextFloat() * 4f
-                        val ang = rng.nextFloat() * 6.28f
-                        val r = rng.nextFloat() * 0.8f
-                        entity.wanderX = target.first + cos(ang) * r
-                        entity.wanderY = target.second + sin(ang) * r
-                    } else {
-                        entity.wanderPhase -= dt
-                    }
-                    stepSoul(entity, entity.wanderX, entity.wanderY, dt, 0.3f)
+                    swayAt(entity, target, dt)
                 }
                 setActivity(entity, activity)
             }
@@ -238,6 +234,48 @@ class SettlementSystem(private val engine: GameEngine, private val rng: Random) 
             }
             if (record.personality == null && entity.personality != null) {
                 record.personality = entity.personality
+            }
+        }
+    }
+
+    /** The slow, small sway of a soul standing at ease about its spot. */
+    private fun swayAt(entity: Entity, target: Pair<Float, Float>, dt: Float) {
+        if (entity.wanderPhase <= 0f) {
+            entity.wanderPhase = 3f + rng.nextFloat() * 4f
+            val ang = rng.nextFloat() * 6.28f
+            val r = rng.nextFloat() * 0.8f
+            entity.wanderX = target.first + cos(ang) * r
+            entity.wanderY = target.second + sin(ang) * r
+        } else {
+            entity.wanderPhase -= dt
+        }
+        stepSoul(entity, entity.wanderX, entity.wanderY, dt, 0.3f)
+    }
+
+    /**
+     * One hand of the works through its day: to its post by the morning's walk,
+     * and when the dusk comes, back out over the road toward its own hearth —
+     * gone from the map once it has stepped off.
+     */
+    private fun stepWorksiteHand(entity: Entity, dt: Float, gone: MutableList<Entity>) {
+        val hour = engine.hour
+        val home = entity.commuteX to entity.commuteY
+        if (hour >= 19 || hour < 5) {
+            if (MapFactory.distance(entity.x, entity.y, home.first, home.second) < 0.8f) {
+                gone += entity
+                setActivity(entity, "gone home over the road")
+                return
+            }
+            stepSoul(entity, home.first, home.second, dt, 0.65f)
+            setActivity(entity, "on the road home")
+        } else if (entity.postX >= 0f) {
+            val post = entity.postX to entity.postY
+            if (MapFactory.distance(entity.x, entity.y, post.first, post.second) > 0.7f) {
+                stepSoul(entity, post.first, post.second, dt, 0.55f)
+                setActivity(entity, "walking to the works")
+            } else {
+                swayAt(entity, post, dt)
+                setActivity(entity, "at the works")
             }
         }
     }

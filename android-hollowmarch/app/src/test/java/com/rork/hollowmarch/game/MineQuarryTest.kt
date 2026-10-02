@@ -226,4 +226,34 @@ class MineQuarryTest {
                 )
             }
     }
+
+    @Test
+    fun theHandsWalkInFromTheHostRoad() {
+        // dawn: the folk are still on the road, none yet standing at its post
+        val dawn = SiteGen.map(world, mine, 0, null, null, 1, minutes = 6 * 60)
+        val dawnHands = dawn.entities.filter { it.resident && it.commuteX >= 0f }
+        assertTrue("no hands walk in over the road", dawnHands.isNotEmpty())
+        dawnHands.forEach { hand ->
+            assertTrue(
+                "a hand was born standing at its post at dawn",
+                MapFactory.distance(hand.x, hand.y, hand.postX, hand.postY) > 0.5f
+            )
+        }
+        // noon: every hand stands at its post
+        val noon = SiteGen.map(world, mine, 0, null, null, 1, minutes = 12 * 60)
+        val noonHands = noon.entities.filter { it.resident && it.commuteX >= 0f }
+        assertTrue("the noon yard keeps no hands", noonHands.isNotEmpty())
+        noonHands.forEach { hand ->
+            assertTrue(
+                "a hand idles from its post at noon",
+                MapFactory.distance(hand.x, hand.y, hand.postX, hand.postY) < 0.9f
+            )
+        }
+        // after dusk: the works keep no hands at all
+        val night = SiteGen.map(world, mine, 0, null, null, 1, minutes = 20 * 60)
+        assertTrue(
+            "the yard keeps hands after dusk",
+            night.entities.none { it.resident && it.commuteX >= 0f }
+        )
+    }
 }

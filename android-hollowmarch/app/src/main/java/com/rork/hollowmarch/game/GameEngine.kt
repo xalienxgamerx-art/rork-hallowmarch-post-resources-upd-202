@@ -443,7 +443,8 @@ class GameEngine(val world: World, startSlot: SaveSlot?, creation: DelverCreatio
         )
         val map = SiteGen.map(
             world, site, floor, roster, geography, stamp.day,
-            worldState.slainBeastIds(), folk = stamp.folk
+            worldState.slainBeastIds(), folk = stamp.folk,
+            minutes = (minutes % 1440f).toInt()
         )
         bindScene(map, site.id, floor)
         return map

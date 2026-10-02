@@ -437,7 +437,8 @@ class Renderer3D(val w: Int, val h: Int) : FrameRenderer {
                 }
             }
             boards += Board(
-                Sprites[if (dead) Sprites.CORPSE else entity.spriteId],
+                if (dead) Sprites[Sprites.CORPSE]
+                else Sprites.viewFor(entity.spriteId, entity.facingAngle, viewAngle),
                 entity.x, entity.y,
                 if (dead) entity.height * 0.32f else entity.height,
                 entity.hurtFlash,
